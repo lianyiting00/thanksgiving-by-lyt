@@ -824,10 +824,10 @@ requestAnimationFrame(frame);
   var label = btn.querySelector('.label');
   var TARGET_VOL = 0.55;
   var started = false, userPaused = false, ready = false, streaming = false;
+  var blobURL = null;
 
   var SRC_LIST = [
-    'https://aka.doubaocdn.com/s/zSRCUO9V1j',
-    'https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@39dd0d89a48a32739eb950c0bbce071c692c51db/music.mp3',
+    'https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@c36f7d2b86430262ba989551d1e687ce8212ceb9/music.mp3',
     'music.mp3'
   ];
 
@@ -835,7 +835,7 @@ requestAnimationFrame(frame);
   btn.classList.add('show');
   setLabel('音乐载入中 0%');
 
-  /* ---------- IndexedDB 缓存：第二次打开秒播 ---------- */
+  /* ---------- 本地缓存：第二次打开秒播 ---------- */
   var DB = null;
   function idb(){
     return new Promise(function(res, rej){
@@ -857,8 +857,7 @@ requestAnimationFrame(frame);
   }
   function idbPut(k, v){
     idb().then(function(db){
-      var st = db.transaction('files','readwrite').objectStore('files');
-      st.put(v, k);
+      db.transaction('files','readwrite').objectStore('files').put(v, k);
     }).catch(function(){});
   }
 
@@ -884,46 +883,107 @@ requestAnimationFrame(frame);
     setLabel('轻触开启音乐');
   }
 
-  function useBlob(b){
-    blobURLset(b);
-  }
-  var blobURL = null;
-  function blobURLset(b){
+  function useBlob(b, cache){
     blobURL = URL.createObjectURL(b);
     ready = true;
-    bgm.src = blobURL;
-    bgm.load();
-    if (!streaming) setLabel('轻触开启音乐');
+    if (cache) idbPut('v5', b);
+    if (!streaming){
+      bgm.src = blobURL;
+      bgm.load();
+      setLabel('轻触开启音乐');
+      if (pendingTap){ pendingTap = false; tryPlay(); }
+    }
   }
 
-  /* ---------- 下载（带卡死检测） ---------- */
-  function grab(url, ok, fail){
-    var x = new XMLHttpRequest();
-    try { x.open('GET', url, true); } catch(e){ fail(); return; }
-    x.responseType = 'blob';
-    var lastBytes = 0, stall = 0, done = false, timer = null;
-    x.onprogress = function(e){
-      if (e.lengthComputable){
-        var pct = Math.min(99, Math.round(e.loaded / e.total * 100));
+  /* ---------- 分段并行下载 ---------- */
+  function probeSize(url){
+    return new Promise(function(res, rej){
+      var x = new XMLHttpRequest();
+      x.open('GET', url, true);
+      x.setRequestHeader('Range', 'bytes=0-0');
+      x.onload = function(){
+        var cr = x.getResponseHeader('Content-Range');
+        var total = 0;
+        if (cr && cr.indexOf('/') > -1) total = parseInt(cr.split('/')[1], 10);
+        if (!total){
+          total = parseInt(x.getResponseHeader('Content-Length'), 10) || 0;
+          if (x.status === 206 && cr){
+            var m = cr.match(/bytes\s+0-0\/(\d+)/);
+            if (m) total = parseInt(m[1], 10);
+          }
+        }
+        total ? res(total) : rej();
+      };
+      x.onerror = function(){ rej(); };
+      x.send();
+    });
+  }
+
+  function fetchRange(url, s, e){
+    return new Promise(function(res, rej){
+      var x = new XMLHttpRequest();
+      x.open('GET', url, true);
+      x.setRequestHeader('Range', 'bytes=' + s + '-' + e);
+      x.responseType = 'arraybuffer';
+      x.onload = function(){
+        if ((x.status === 206 || x.status === 200) && x.response && x.response.byteLength > 0) res(x.response);
+        else rej();
+      };
+      x.onerror = function(){ rej(); };
+      x.send();
+    });
+  }
+
+  function downloadParallel(url){
+    return probeSize(url).then(function(total){
+      var N = 6, seg = Math.ceil(total / N);
+      var parts = new Array(N), done = 0;
+      function progress(){
+        var got = 0;
+        for (var i=0;i<N;i++) got += parts[i] ? parts[i].byteLength : 0;
+        var pct = Math.min(99, Math.round(got / total * 100));
         if (!ready && !streaming) setLabel('音乐载入中 ' + pct + '%');
         else if (streaming) setLabel('播放中 · 载入 ' + pct + '%');
       }
-      if (e.loaded === lastBytes){ stall++; } else { stall = 0; lastBytes = e.loaded; }
-      if (e.loaded > lastBytes) lastBytes = e.loaded;
-    };
-    timer = setInterval(function(){
-      if (done) return;
-      /* 8 秒没有任何新字节，换源 */
-      if (stall > 8){ done = true; clearInterval(timer); try{ x.abort(); }catch(e){} fail(); }
-    }, 1000);
-    x.onload = function(){
-      if (done) return;
-      done = true; clearInterval(timer);
-      if ((x.status === 200 || x.status === 206) && x.response && x.response.size > 50000) ok(x.response);
-      else fail();
-    };
-    x.onerror = function(){ if (!done){ done = true; clearInterval(timer); fail(); } };
-    x.send();
+      var jobs = [];
+      for (var i=0;i<N;i++){
+        (function(i){
+          var s = i*seg, e = Math.min(total-1, s+seg-1);
+          jobs.push(fetchRange(url, s, e).then(function(buf){ parts[i] = buf; done++; progress(); }));
+        })(i);
+      }
+      return Promise.all(jobs).then(function(){
+        return new Blob(parts, {type:'audio/mpeg'});
+      });
+    });
+  }
+
+  /* 单请求兜底 */
+  function downloadSingle(url){
+    return new Promise(function(res, rej){
+      var x = new XMLHttpRequest();
+      x.open('GET', url, true);
+      x.responseType = 'blob';
+      var last = -1, stall = 0, done = false;
+      x.onprogress = function(e){
+        if (e.lengthComputable){
+          var pct = Math.min(99, Math.round(e.loaded / e.total * 100));
+          if (!ready && !streaming) setLabel('音乐载入中 ' + pct + '%');
+        }
+        if (e.loaded === last) stall++; else { stall = 0; last = e.loaded; }
+      };
+      var t = setInterval(function(){
+        if (done) return;
+        if (stall > 10){ done = true; clearInterval(t); try{ x.abort(); }catch(err){} rej(); }
+      }, 1000);
+      x.onload = function(){
+        if (done) return; done = true; clearInterval(t);
+        if ((x.status===200||x.status===206) && x.response && x.response.size > 50000) res(x.response);
+        else rej();
+      };
+      x.onerror = function(){ if(!done){ done = true; clearInterval(t); rej(); } };
+      x.send();
+    });
   }
 
   function loadFrom(i){
@@ -935,20 +995,25 @@ requestAnimationFrame(frame);
       }
       return;
     }
-    grab(SRC_LIST[i], function(b){ blobURLset(b); idbPut('v4', b); }, function(){ loadFrom(i+1); });
+    downloadParallel(SRC_LIST[i])
+      .then(function(b){ useBlob(b, true); })
+      .catch(function(){
+        downloadSingle(SRC_LIST[i])
+          .then(function(b){ useBlob(b, true); })
+          .catch(function(){ loadFrom(i+1); });
+      });
   }
 
-  idbGet('v4').then(function(b){
-    if (b && b.size > 50000){ blobURLset(b); setLabel('轻触开启音乐'); }
+  idbGet('v5').then(function(b){
+    if (b && b.size > 50000){ useBlob(b, false); }
     else loadFrom(0);
   });
 
-  /* ---------- 播放控制 ---------- */
+  /* ---------- 播放 ---------- */
+  var pendingTap = false;
   function tryPlay(){
     if (userPaused) return;
-    if (ready && bgm.src.indexOf('blob:') === 0){}
     if (!ready){
-      /* 还没下完：先用流播，边听边下 */
       if (!streaming){
         streaming = true;
         bgm.src = SRC_LIST[0];
@@ -964,9 +1029,10 @@ requestAnimationFrame(frame);
 
   btn.addEventListener('click', function(e){
     e.stopPropagation();
-    if (loadFrom._r && !ready){ return; }   /* 失败重试按钮已接管 */
+    if (loadFrom._r && !ready) return;
     if (!started || bgm.paused){
       userPaused = false;
+      if (!ready) pendingTap = true;
       tryPlay();
     } else {
       userPaused = true;
@@ -976,7 +1042,7 @@ requestAnimationFrame(frame);
     }
   });
 
-  document.addEventListener('pointerdown', function(){ if (!started) tryPlay(); }, { passive:true });
+  document.addEventListener('pointerdown', function(){ if (!started){ if (!ready) pendingTap = true; tryPlay(); } }, { passive:true });
 })();
 </script>
 
