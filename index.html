@@ -819,15 +819,15 @@ requestAnimationFrame(frame);
 
 <script>
 (function(){
-  var bgm  = document.getElementById('bgm');
-  var btn  = document.getElementById('musicBtn');
-  var label= btn.querySelector('.label');
+  var bgm   = document.getElementById('bgm');
+  var btn   = document.getElementById('musicBtn');
+  var label = btn.querySelector('.label');
   var TARGET_VOL = 0.55;
-  var started = false, userPaused = false, ready = false, pending = false;
+  var started = false, userPaused = false, ready = false, streaming = false;
 
   var SRC_LIST = [
-    'https://aka.doubaocdn.com/s/pwoCxV6l0z',
-    'https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3',
+    'https://aka.doubaocdn.com/s/zSRCUO9V1j',
+    'https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@39dd0d89a48a32739eb950c0bbce071c692c51db/music.mp3',
     'music.mp3'
   ];
 
@@ -835,12 +835,39 @@ requestAnimationFrame(frame);
   btn.classList.add('show');
   setLabel('音乐载入中 0%');
 
+  /* ---------- IndexedDB 缓存：第二次打开秒播 ---------- */
+  var DB = null;
+  function idb(){
+    return new Promise(function(res, rej){
+      if (DB) return res(DB);
+      var r = indexedDB.open('lyt_music', 1);
+      r.onupgradeneeded = function(){ r.result.createObjectStore('files'); };
+      r.onsuccess = function(){ DB = r.result; res(DB); };
+      r.onerror = function(){ rej(r.error); };
+    });
+  }
+  function idbGet(k){
+    return idb().then(function(db){
+      return new Promise(function(res, rej){
+        var q = db.transaction('files','readonly').objectStore('files').get(k);
+        q.onsuccess = function(){ res(q.result); };
+        q.onerror = function(){ rej(q.error); };
+      });
+    }).catch(function(){ return null; });
+  }
+  function idbPut(k, v){
+    idb().then(function(db){
+      var st = db.transaction('files','readwrite').objectStore('files');
+      st.put(v, k);
+    }).catch(function(){});
+  }
+
   function fadeIn(){
     bgm.volume = 0;
     var t0 = null;
     function step(t){
       if (!t0) t0 = t;
-      var k = Math.min(1, (t - t0) / 2600);
+      var k = Math.min(1, (t - t0) / 2400);
       bgm.volume = TARGET_VOL * k;
       if (k < 1) requestAnimationFrame(step);
     }
@@ -857,76 +884,87 @@ requestAnimationFrame(frame);
     setLabel('轻触开启音乐');
   }
 
-  /* 整段下载到内存，下完再播，绝不中途断流 */
-  function grab(url, onOK, onFail){
+  function useBlob(b){
+    blobURLset(b);
+  }
+  var blobURL = null;
+  function blobURLset(b){
+    blobURL = URL.createObjectURL(b);
+    ready = true;
+    bgm.src = blobURL;
+    bgm.load();
+    if (!streaming) setLabel('轻触开启音乐');
+  }
+
+  /* ---------- 下载（带卡死检测） ---------- */
+  function grab(url, ok, fail){
     var x = new XMLHttpRequest();
-    try { x.open('GET', url, true); } catch(e){ onFail(); return; }
+    try { x.open('GET', url, true); } catch(e){ fail(); return; }
     x.responseType = 'blob';
-    var lastTick = Date.now(), aborted = false;
-    var timer = setInterval(function(){
-      if (aborted) return;
-      if (Date.now() - lastTick > 6000){
-        aborted = true;
-        clearInterval(timer);
-        try { x.abort(); } catch(e){}
-        onFail();
-      }
-    }, 1000);
+    var lastBytes = 0, stall = 0, done = false, timer = null;
     x.onprogress = function(e){
-      lastTick = Date.now();
       if (e.lengthComputable){
         var pct = Math.min(99, Math.round(e.loaded / e.total * 100));
-        if (!ready) setLabel('音乐载入中 ' + pct + '%');
+        if (!ready && !streaming) setLabel('音乐载入中 ' + pct + '%');
+        else if (streaming) setLabel('播放中 · 载入 ' + pct + '%');
       }
+      if (e.loaded === lastBytes){ stall++; } else { stall = 0; lastBytes = e.loaded; }
+      if (e.loaded > lastBytes) lastBytes = e.loaded;
     };
+    timer = setInterval(function(){
+      if (done) return;
+      /* 8 秒没有任何新字节，换源 */
+      if (stall > 8){ done = true; clearInterval(timer); try{ x.abort(); }catch(e){} fail(); }
+    }, 1000);
     x.onload = function(){
-      clearInterval(timer);
-      if (aborted) return;
-      if ((x.status === 200 || x.status === 206) && x.response && x.response.size > 100000) onOK(x.response);
-      else onFail();
+      if (done) return;
+      done = true; clearInterval(timer);
+      if ((x.status === 200 || x.status === 206) && x.response && x.response.size > 50000) ok(x.response);
+      else fail();
     };
-    x.onerror = function(){ clearInterval(timer); if (!aborted){ aborted = true; onFail(); } };
-    x.ontimeout = function(){ clearInterval(timer); if (!aborted){ aborted = true; onFail(); } };
+    x.onerror = function(){ if (!done){ done = true; clearInterval(timer); fail(); } };
     x.send();
   }
 
-  function useBlob(b){
-    var u = URL.createObjectURL(b);
-    bgm.src = u;
-    bgm.load();
-    ready = true;
-    setLabel('轻触开启音乐');
-    if (pending) { pending = false; tryPlay(); }
-  }
-
-  var RETRY = null;
-  function load(i){
+  function loadFrom(i){
     if (i >= SRC_LIST.length){
       setLabel('音乐加载失败 · 点这里重试');
-      if (!RETRY){
-        RETRY = function(){ btn.removeEventListener('click', RETRY); RETRY = null; setLabel('音乐载入中 0%'); load(0); };
-        btn.addEventListener('click', RETRY);
+      if (!loadFrom._r){
+        loadFrom._r = function(){ btn.removeEventListener('click', loadFrom._r); loadFrom._r = null; setLabel('音乐载入中 0%'); loadFrom(0); };
+        btn.addEventListener('click', loadFrom._r);
       }
       return;
     }
-    grab(SRC_LIST[i], useBlob, function(){ load(i+1); });
+    grab(SRC_LIST[i], function(b){ blobURLset(b); idbPut('v4', b); }, function(){ loadFrom(i+1); });
   }
-  load(0);
 
+  idbGet('v4').then(function(b){
+    if (b && b.size > 50000){ blobURLset(b); setLabel('轻触开启音乐'); }
+    else loadFrom(0);
+  });
+
+  /* ---------- 播放控制 ---------- */
   function tryPlay(){
     if (userPaused) return;
-    if (!ready){ pending = true; setLabel('音乐载入中…'); return; }
+    if (ready && bgm.src.indexOf('blob:') === 0){}
+    if (!ready){
+      /* 还没下完：先用流播，边听边下 */
+      if (!streaming){
+        streaming = true;
+        bgm.src = SRC_LIST[0];
+        bgm.load();
+        setLabel('播放中 · 载入中');
+      }
+    }
     var p = bgm.play();
     if (p && typeof p.then === 'function'){
       p.then(function(){ markPlaying(); fadeIn(); }).catch(function(){ markBlocked(); });
-    } else {
-      markPlaying();
-    }
+    } else markPlaying();
   }
 
   btn.addEventListener('click', function(e){
     e.stopPropagation();
-    if (!ready){ pending = true; setLabel('音乐载入中…'); return; }
+    if (loadFrom._r && !ready){ return; }   /* 失败重试按钮已接管 */
     if (!started || bgm.paused){
       userPaused = false;
       tryPlay();
@@ -938,7 +976,7 @@ requestAnimationFrame(frame);
     }
   });
 
-  document.addEventListener('pointerdown', function(){ if (!started) tryPlay(); }, { passive: true });
+  document.addEventListener('pointerdown', function(){ if (!started) tryPlay(); }, { passive:true });
 })();
 </script>
 
