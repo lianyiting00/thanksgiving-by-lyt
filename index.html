@@ -825,8 +825,11 @@ requestAnimationFrame(frame);
   var TARGET_VOL = 0.55;
   var started = false, userPaused = false, ready = false, pending = false;
 
-  var CDN = 'https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3';
-  var LOCAL = 'music.mp3';
+  var SRC_LIST = [
+    'https://aka.doubaocdn.com/s/pwoCxV6l0z',
+    'https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3',
+    'music.mp3'
+  ];
 
   function setLabel(t){ label.textContent = t; }
   btn.classList.add('show');
@@ -859,18 +862,31 @@ requestAnimationFrame(frame);
     var x = new XMLHttpRequest();
     try { x.open('GET', url, true); } catch(e){ onFail(); return; }
     x.responseType = 'blob';
+    var lastTick = Date.now(), aborted = false;
+    var timer = setInterval(function(){
+      if (aborted) return;
+      if (Date.now() - lastTick > 6000){
+        aborted = true;
+        clearInterval(timer);
+        try { x.abort(); } catch(e){}
+        onFail();
+      }
+    }, 1000);
     x.onprogress = function(e){
+      lastTick = Date.now();
       if (e.lengthComputable){
         var pct = Math.min(99, Math.round(e.loaded / e.total * 100));
         if (!ready) setLabel('音乐载入中 ' + pct + '%');
       }
     };
     x.onload = function(){
+      clearInterval(timer);
+      if (aborted) return;
       if ((x.status === 200 || x.status === 206) && x.response && x.response.size > 100000) onOK(x.response);
       else onFail();
     };
-    x.onerror = function(){ onFail(); };
-    x.ontimeout = function(){ onFail(); };
+    x.onerror = function(){ clearInterval(timer); if (!aborted){ aborted = true; onFail(); } };
+    x.ontimeout = function(){ clearInterval(timer); if (!aborted){ aborted = true; onFail(); } };
     x.send();
   }
 
@@ -883,19 +899,17 @@ requestAnimationFrame(frame);
     if (pending) { pending = false; tryPlay(); }
   }
 
+  var RETRY = null;
   function load(i){
-    if (i === 0){
-      grab(CDN, useBlob, function(){ load(1); });
-    } else {
-      grab(LOCAL, useBlob, function(){
-        setLabel('音乐加载失败，点一下重试');
-        btn.addEventListener('click', function once(){
-          btn.removeEventListener('click', once);
-          setLabel('音乐载入中 0%');
-          load(0);
-        });
-      });
+    if (i >= SRC_LIST.length){
+      setLabel('音乐加载失败 · 点这里重试');
+      if (!RETRY){
+        RETRY = function(){ btn.removeEventListener('click', RETRY); RETRY = null; setLabel('音乐载入中 0%'); load(0); };
+        btn.addEventListener('click', RETRY);
+      }
+      return;
     }
+    grab(SRC_LIST[i], useBlob, function(){ load(i+1); });
   }
   load(0);
 
