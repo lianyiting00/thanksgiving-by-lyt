@@ -805,7 +805,7 @@ requestAnimationFrame(frame);
 })();
 </script>
 
-<audio id="bgm" loop playsinline preload="none"></audio>
+<audio id="bgm" loop playsinline preload="auto" src="intro.mp3"></audio>
 
 <button id="musicBtn" class="music-btn" aria-label="music">
   <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -823,41 +823,29 @@ requestAnimationFrame(frame);
   var btn   = document.getElementById('musicBtn');
   var label = btn.querySelector('.label');
   var TARGET_VOL = 0.55;
-
-  var started = false, userPaused = false, ready = false, streaming = false;
-  var pendingTap = false;
-  var introURL = null, fullURL = null, fullReady = false, playingIntro = false;
-
-  var INTRO_SRC = ['intro.mp3'];
-  var FULL_SRC  = ['music.mp3'];
+  var started = false, userPaused = false, ready = false, fullReady = false;
+  var pendingTap = false, onFull = false, switching = false;
 
   function setLabel(t){ label.textContent = t; }
   btn.classList.add('show');
-  setLabel('音乐载入中 0%');
+  setLabel('轻触开启音乐');
 
-  /* ---------- 缓存 ---------- */
-  var DB = null;
-  function idb(){
-    return new Promise(function(res, rej){
-      if (DB) return res(DB);
-      var r = indexedDB.open('lyt_music', 1);
-      r.onupgradeneeded = function(){ r.result.createObjectStore('files'); };
-      r.onsuccess = function(){ DB = r.result; res(DB); };
-      r.onerror = function(){ rej(r.error); };
-    });
-  }
-  function idbGet(k){
-    return idb().then(function(db){
-      return new Promise(function(res, rej){
-        var q = db.transaction('files','readonly').objectStore('files').get(k);
-        q.onsuccess = function(){ res(q.result); };
-        q.onerror = function(){ rej(q.error); };
-      });
-    }).catch(function(){ return null; });
-  }
-  function idbPut(k, v){
-    idb().then(function(db){ db.transaction('files','readwrite').objectStore('files').put(v, k); }).catch(function(){});
-  }
+  /* 原生音频流：浏览器自己缓冲，兼容性最好 */
+  bgm.preload = 'auto';
+  bgm.src = 'intro.mp3';
+  bgm.load();
+
+  /* 完整版在后台悄悄预缓冲 */
+  var full = new Audio();
+  full.preload = 'auto';
+  full.src = 'music.mp3';
+  full.load();
+  full.addEventListener('canplaythrough', function(){ fullReady = true; }, false);
+  full.addEventListener('loadeddata', function(){ if (fullReady === false) fullReady = full.readyState >= 2; }, false);
+
+  bgm.addEventListener('canplay', function(){ ready = true; }, false);
+  bgm.addEventListener('loadeddata', function(){ ready = true; }, false);
+  bgm.addEventListener('error', function(){ setLabel('音乐加载失败'); }, false);
 
   function fadeIn(){
     bgm.volume = 0;
@@ -874,142 +862,43 @@ requestAnimationFrame(frame);
     started = true;
     btn.classList.add('compact');
     btn.classList.remove('paused');
+    setLabel('');
   }
   function markBlocked(){
     btn.classList.remove('compact');
     setLabel('轻触开启音乐');
   }
 
-  /* ---------- 分段下载 ---------- */
-  function withTimeout(pr, ms){
-    return Promise.race([pr, new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout')); }, ms); })]);
-  }
-  function probeSize(url){
-    return new Promise(function(res, rej){
-      var x = new XMLHttpRequest();
-      x.open('GET', url, true);
-      x.setRequestHeader('Range', 'bytes=0-0');
-      x.onload = function(){
-        var cr = x.getResponseHeader('Content-Range'), total = 0;
-        if (cr && cr.indexOf('/') > -1) total = parseInt(cr.split('/')[1], 10);
-        if (!total) total = parseInt(x.getResponseHeader('Content-Length'), 10) || 0;
-        total ? res(total) : rej();
-      };
-      x.onerror = function(){ rej(); };
-      x.send();
-    });
-  }
-  function fetchRange(url, a, b){
-    return new Promise(function(res, rej){
-      var x = new XMLHttpRequest();
-      x.open('GET', url, true);
-      x.setRequestHeader('Range', 'bytes=' + a + '-' + b);
-      x.responseType = 'arraybuffer';
-      x.onload = function(){
-        if ((x.status === 206 || x.status === 200) && x.response && x.response.byteLength) res(x.response);
-        else rej();
-      };
-      x.onerror = function(){ rej(); };
-      x.send();
-    });
-  }
-  function download(url, N, onProg){
-    return withTimeout(probeSize(url), 8000).then(function(total){
-      var seg = Math.ceil(total / N), parts = new Array(N), got = 0;
-      var jobs = [];
-      for (var i=0;i<N;i++){
-        (function(i){
-          var a = i*seg, b = Math.min(total-1, a+seg-1);
-          jobs.push(withTimeout(fetchRange(url, a, b), 16000).then(function(buf){
-            parts[i] = buf; got += buf.byteLength;
-            onProg && onProg(Math.round(got/total*100));
-          }));
-        })(i);
-      }
-      return withTimeout(Promise.all(jobs), 26000).then(function(){
-        return new Blob(parts, {type:'audio/mpeg'});
-      });
-    });
-  }
-
-  function useIntro(b, cache){
-    introURL = URL.createObjectURL(b);
-    ready = true;
-    if (cache) idbPut('intro_v1', b);
-    if (!streaming){
-      bgm.src = introURL;
-      bgm.load();
-      playingIntro = true;
-      setLabel('轻触开启音乐');
-      if (pendingTap){ pendingTap = false; tryPlay(); }
+  /* 30 秒处接上完整版，继续往后播 */
+  bgm.addEventListener('timeupdate', function(){
+    if (onFull || switching || !fullReady) return;
+    if (bgm.currentTime > 27){
+      switching = true;
+      var t = bgm.currentTime;
+      try {
+        bgm.src = 'music.mp3';
+        bgm.load();
+        bgm.currentTime = t;
+        if (!bgm.paused) bgm.play();
+        onFull = true;
+      } catch(e){}
+      switching = false;
     }
-  }
-  function useFull(b, cache){
-    fullURL = URL.createObjectURL(b);
-    fullReady = true;
-    if (cache) idbPut('full_v2', b);
-  }
+  }, false);
 
-  /* 30 秒试听段优先，完整版后台下载 */
-  function loadIntro(i){
-    if (i >= INTRO_SRC.length){ loadFull(0); return; }
-    download(INTRO_SRC[i], 6, function(pct){
-      if (!ready && !streaming) setLabel('音乐载入中 ' + pct + '%');
-    }).then(function(b){ useIntro(b, true); loadFull(0); })
-      .catch(function(){ loadIntro(i+1); });
-  }
-  function loadFull(i){
-    if (i >= FULL_SRC.length) return;
-    if (fullReady) return;
-    download(FULL_SRC[i], 8).then(function(b){ useFull(b, true); })
-      .catch(function(){ loadFull(i+1); });
-  }
-
-  Promise.all([idbGet('intro_v1'), idbGet('full_v2')]).then(function(r){
-    if (r[0] && r[0].size > 50000){ useIntro(r[0], false); loadFull(0); }
-    else if (r[1] && r[1].size > 100000){ useFull(r[1], false); useIntro(r[1], false); }
-    else loadIntro(0);
-  });
-
-  /* ---------- 播放 ---------- */
   function tryPlay(){
     if (userPaused) return;
-    if (!ready && !fullReady){
-      if (!streaming){
-        streaming = true;
-        bgm.src = INTRO_SRC[0];
-        bgm.load();
-        setLabel('播放中 · 载入中');
-      }
-    } else if (!ready && fullReady){
-      bgm.src = fullURL; bgm.load();
-    }
+    if (!ready && !fullReady){ pendingTap = true; }
     var p = bgm.play();
     if (p && typeof p.then === 'function'){
       p.then(function(){ markPlaying(); fadeIn(); }).catch(function(){ markBlocked(); });
     } else markPlaying();
   }
 
-  /* 完整版就绪后，在 30 秒处无缝接上剩余部分 */
-  bgm.addEventListener('timeupdate', function(){
-    if (!fullReady || !fullURL) return;
-    if (bgm.src !== fullURL && playingIntro && bgm.currentTime > 27){
-      var t = bgm.currentTime;
-      try {
-        bgm.src = fullURL;
-        bgm.load();
-        bgm.currentTime = t;
-        if (!bgm.paused) bgm.play();
-        playingIntro = false;
-      } catch(e){}
-    }
-  });
-
   btn.addEventListener('click', function(e){
     e.stopPropagation();
     if (!started || bgm.paused){
       userPaused = false;
-      if (!ready && !fullReady) pendingTap = true;
       tryPlay();
     } else {
       userPaused = true;
@@ -1019,9 +908,11 @@ requestAnimationFrame(frame);
     }
   });
 
-  document.addEventListener('pointerdown', function(){
-    if (!started){ if (!ready && !fullReady) pendingTap = true; tryPlay(); }
-  }, { passive:true });
+  document.addEventListener('pointerdown', function(){ if (!started) tryPlay(); }, { passive:true });
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) return;
+    if (started && !userPaused && bgm.paused) bgm.play().catch(function(){});
+  });
 })();
 </script>
 
