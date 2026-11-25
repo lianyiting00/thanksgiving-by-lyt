@@ -101,12 +101,188 @@
       radial-gradient(ellipse 55% 42% at 50% 52%,rgba(56,124,245,.22) 0%,rgba(24,64,170,.10) 42%,rgba(0,0,0,0) 72%),
       radial-gradient(ellipse at 50% 55%,rgba(0,0,0,0) 42%,rgba(2,6,20,.62) 100%);
   }
+
+  /* ============ 融合层：桃树下的一封信 ============ */
+  #letterEntry{
+    position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));
+    transform:translateX(-50%) translateY(12px);
+    z-index:7;display:flex;align-items:center;gap:7px;
+    padding:11px 20px 11px 18px;border-radius:999px;
+    border:1px solid rgba(160,205,255,.42);
+    background:rgba(14,34,74,.52);
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    color:#e8f3ff;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:13px;letter-spacing:.14em;line-height:1;cursor:pointer;
+    box-shadow:0 0 20px rgba(64,148,255,.30),inset 0 0 12px rgba(120,186,255,.18);
+    opacity:0;pointer-events:none;
+    transition:opacity .9s ease,transform .9s cubic-bezier(.2,.7,.25,1);
+    -webkit-tap-highlight-color:transparent;user-select:none;
+  }
+  #letterEntry.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}
+  #letterEntry:active{transform:translateX(-50%) scale(.96);}
+  #letterEntry em{font-style:normal;font-size:14px;opacity:.9;}
+
+  #letterStage{
+    position:fixed;inset:0;z-index:9;
+    opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .9s ease, visibility .9s;
+  }
+  #letterStage.on{opacity:1;visibility:visible;pointer-events:auto;}
+
+  #letterScroll{
+    position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    background:
+      radial-gradient(1100px 700px at 18% -8%, rgba(255,246,232,.95) 0%, rgba(255,246,232,0) 60%),
+      radial-gradient(900px 620px at 96% 12%, rgba(246,226,198,.70) 0%, rgba(246,226,198,0) 62%),
+      radial-gradient(1000px 800px at 50% 108%, rgba(236,214,186,.78) 0%, rgba(236,214,186,0) 60%),
+      #F5EBDD;
+  }
+  #letterScroll::before{
+    content:'';position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.55;
+    background-image:
+      radial-gradient(rgba(163,132,98,.055) 1px, transparent 1px),
+      radial-gradient(rgba(163,132,98,.045) 1px, transparent 1px);
+    background-size:22px 22px, 31px 31px;
+    background-position:0 0, 11px 17px;
+  }
+  #letterScroll::after{
+    content:'';position:fixed;inset:0;pointer-events:none;z-index:2;
+    background:linear-gradient(180deg, rgba(250,243,232,.94) 0%, rgba(250,243,232,0) 13%, rgba(250,243,232,0) 84%, rgba(240,226,205,.94) 100%);
+  }
+  #letterScroll .page{position:relative;z-index:3;max-width:610px;margin:0 auto;padding:15vh 26px 24vh;}
+  #letterScroll .kicker{font-size:12px;letter-spacing:.42em;color:#A98E72;text-align:center;margin-bottom:26px;
+    font-family:"Songti SC","STSong","Source Han Serif SC","Noto Serif SC",serif;}
+  #letterScroll .title{font-family:"Songti SC","STSong","Source Han Serif SC","Noto Serif SC",serif;
+    font-size:20px;line-height:1.6;letter-spacing:.14em;font-weight:400;color:#5E4A39;text-align:center;margin:0 0 8px;}
+  #letterScroll .sub{font-size:12.5px;letter-spacing:.22em;color:#B39A7E;text-align:center;margin:0 0 34px;
+    font-family:"Songti SC","STSong","Source Han Serif SC","Noto Serif SC",serif;}
+  #letterScroll .rule{width:44px;height:1px;margin:0 auto 40px;
+    background:linear-gradient(90deg,rgba(180,150,116,0),rgba(180,150,116,.75),rgba(180,150,116,0));}
+  #letterScroll p{font-family:"Songti SC","STSong","Source Han Serif SC","Noto Serif SC","PingFang SC",serif;
+    font-size:17px;line-height:1.88;letter-spacing:.045em;color:#7A6250;margin:0 0 30px;white-space:pre-line;
+    text-shadow:0 1px 0 rgba(255,255,255,.5);}
+  #letterScroll p.lead{color:#6B5544;margin-bottom:38px;}
+  #letterScroll .mark{display:flex;align-items:center;justify-content:center;gap:9px;margin:2px 0 32px;}
+  #letterScroll .mark i{display:block;height:1px;width:13px;
+    background:linear-gradient(90deg,rgba(184,154,119,0),rgba(184,154,119,.55));}
+  #letterScroll .mark i:last-child{background:linear-gradient(270deg,rgba(184,154,119,0),rgba(184,154,119,.55));}
+  #letterScroll .mark b{display:block;width:3.5px;height:3.5px;border-radius:50%;background:rgba(184,154,119,.62);}
+  #letterScroll .leaf{display:block;text-align:center;font-size:15px;color:#C0A483;margin:26px 0 6px;}
+  #letterScroll .end{font-family:"Songti SC","STSong","Source Han Serif SC","Noto Serif SC",serif;
+    font-size:16.5px;line-height:2.02;letter-spacing:.10em;color:#6A5342;text-align:center;white-space:pre-line;margin:0;}
+  #letterScroll .sig{text-align:center;font-size:11.5px;letter-spacing:.34em;color:#BB9F82;margin-top:26px;
+    font-family:"Songti SC","STSong",serif;}
+  @media (min-width:760px){
+    #letterScroll p{font-size:17.5px;line-height:1.95;}
+    #letterScroll .page{padding-top:12vh;}
+  }
+  #letterBack{
+    position:fixed;left:16px;top:calc(15px + env(safe-area-inset-top));z-index:4;
+    padding:8px 14px;border-radius:999px;cursor:pointer;
+    border:1px solid rgba(180,150,116,.24);background:rgba(255,251,245,.86);
+    -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+    color:#8A7057;font-size:11.5px;letter-spacing:.16em;line-height:1;
+    font-family:"Songti SC","STSong",serif;box-shadow:0 2px 12px rgba(150,120,88,.12);
+    -webkit-tap-highlight-color:transparent;
+  }
+  #letterBack:active{transform:scale(.96);}
+  #letterHint{
+    position:fixed;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom));
+    z-index:4;text-align:center;opacity:0;transition:opacity 1.1s ease;
+  }
+  #letterHint.show{opacity:.9;}
+  #letterHint span{
+    display:inline-block;padding:8px 17px;border-radius:999px;cursor:pointer;
+    background:rgba(255,251,245,.94);border:1px solid rgba(180,150,116,.20);
+    color:#9E856B;font-size:11.5px;letter-spacing:.24em;
+    font-family:"Songti SC","STSong",serif;box-shadow:0 2px 14px rgba(150,120,88,.16);
+  }
+
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
 <canvas id="snow"></canvas>
 <div class="vignette"></div>
+<div id="letterEntry"><em>💌</em>一封写给你的信</div>
+
+<div id="letterStage">
+  <div id="letterScroll">
+  <div class="page">
+    <div class="kicker">THANKSGIVING　·　感恩节</div>
+    <h1 class="title">🍂 感恩节 · 致我的朋友</h1>
+    <div class="sub">愿这段话，落进你心里的时候刚刚好</div>
+    <div class="rule"></div>
+
+    <p class="lead">感恩节，想把一段温柔的话送给你。</p>
+
+    <p>我知道，这段日子你走得并不轻松。
+有很多夜里辗转难眠的时刻，
+有很多说不出口、压在心底的委屈，
+也常常怀疑自己，悄悄觉得疲惫。</p>
+
+    <div class="mark"><i></i><b></b><i></i></div>
+
+    <p>不必逼自己一直坚强，
+难过可以允许自己难过，脆弱也没有关系。
+不用急着马上好起来，
+不用追赶别人的节奏，
+你可以慢慢疗愈，慢慢和自己和解。</p>
+
+    <div class="mark"><i></i><b></b><i></i></div>
+
+    <p>那些困住你的难题、难熬的瞬间，
+都只是暂时路过，不会永远停留。
+你已经很努力了，真的很棒。
+你扛住了很多不容易，只是你常常忽略自己的勇敢。</p>
+
+    <div class="mark"><i></i><b></b><i></i></div>
+
+    <p>不必事事追求完美，
+接纳有瑕疵、会低落的自己。
+你的价值，从来不由结果定义。
+你值得被好好对待，首先是被你自己善待。</p>
+
+    <div class="mark"><i></i><b></b><i></i></div>
+
+    <p>如果觉得累了，就停下来歇一歇。
+不用硬撑，我一直都在。
+不用独自消化所有情绪，
+想倾诉的时候，我随时愿意听你说。</p>
+
+    <div class="mark"><i></i><b></b><i></i></div>
+
+    <p>愿你慢慢卸下心里的重担，
+放过焦虑，放过内耗。
+往后多偏爱自己一点，
+好好吃饭，好好睡觉，照顾好情绪。</p>
+
+    <div class="mark"><i></i><b></b><i></i></div>
+
+    <p>允许一切发生，也相信一切都会慢慢变好。
+风雨会过去，阴霾会散开，
+属于你的温柔和光亮，正在向你靠近。</p>
+
+    <div class="mark"><i></i><b></b><i></i></div>
+
+    <p>感恩人海之中遇见你，
+感恩能陪着你走过这段低谷。
+不用急，我们慢慢来。
+愿你内心安稳，慢慢自愈，
+往后平安，自在，舒心。</p>
+
+    <span class="leaf">🍂</span>
+    <p class="end">感恩节快乐，
+你已经很好了，再等等，一切都会晴朗。</p>
+
+    <div class="sig">· 感 谢 有 你 ·</div>
+  </div>
+  </div>
+  <button id="letterBack">‹ 回到桃子</button>
+  <div id="letterHint"><span>轻触暂停</span></div>
+</div>
+
 <div class="greet"><span class="l1">感恩节快乐 <span class="by">by lyt</span></span><span class="l2">🐷我的🍑天天开心～～</span><span class="l3">Happy Thanksgiving!</span></div>
 
 <script>
@@ -577,6 +753,8 @@ function frame(t){
   var raw = lastT ? (t-lastT)/1000 : 0.016;
   var dt = lastT ? Math.min(raw, 0.066) : 0.016;
   lastT = t;
+  /* 阅读信件时暂停渲染，省电 */
+  if (document.body.classList.contains('reading')){ requestAnimationFrame(frame); return; }
   angle += 0.27*dt;
 
   // 自适应降级：帧时间偏长时关掉辉光层
@@ -703,5 +881,81 @@ requestAnimationFrame(frame);
 })();
 </script>
 
+
+<script>
+(function(){
+  var sc    = document.getElementById('letterScroll');
+  var stage = document.getElementById('letterStage');
+  var entry = document.getElementById('letterEntry');
+  var hint  = document.getElementById('letterHint');
+  var label = hint.querySelector('span');
+  var back  = document.getElementById('letterBack');
+  var SPEED = 13;
+  var open = false, paused = false, atEnd = false, hold = false, pos = 0, last = 0;
+
+  setTimeout(function(){ if (!open) entry.classList.add('show'); }, 4600);
+
+  function enter(){
+    if (open) return;
+    open = true;
+    entry.classList.remove('show');
+    stage.classList.add('on');
+    document.body.classList.add('reading');
+    sc.scrollTop = 0; pos = 0; paused = false; atEnd = false; hold = false;
+    label.textContent = '轻触暂停';
+    setTimeout(function(){ hint.classList.add('show'); }, 900);
+    setTimeout(function(){ hint.classList.remove('show'); }, 5600);
+    last = 0;
+    requestAnimationFrame(step);
+  }
+  function leave(){
+    if (!open) return;
+    open = false;
+    stage.classList.remove('on');
+    document.body.classList.remove('reading');
+    hint.classList.remove('show');
+    setTimeout(function(){ if (!open) entry.classList.add('show'); }, 500);
+  }
+  function step(t){
+    if (!open) return;
+    var dt = last ? Math.min((t-last)/1000, 0.06) : 0.016;
+    last = t;
+    if (!paused && !atEnd && !hold){
+      var max = sc.scrollHeight - sc.clientHeight;
+      if (max > 0){
+        var cur = sc.scrollTop;
+        if (Math.abs(cur - pos) > 2) pos = cur;
+        pos += SPEED*dt;
+        if (pos >= max){ pos = max; atEnd = true; label.textContent = '轻触回到开头'; hint.classList.add('show'); }
+        sc.scrollTop = pos;
+      }
+    }
+    requestAnimationFrame(step);
+  }
+  function toggle(){
+    if (atEnd){
+      sc.scrollTo({top:0, behavior:'smooth'});
+      atEnd = false; pos = 0; paused = false; label.textContent = '轻触暂停';
+      return;
+    }
+    paused = !paused;
+    label.textContent = paused ? '轻触继续读' : '轻触暂停';
+  }
+  hint.addEventListener('click', function(e){ e.stopPropagation(); toggle(); });
+  back.addEventListener('click', function(e){ e.stopPropagation(); leave(); });
+  var rt = null;
+  function moved(){
+    pos = sc.scrollTop;
+    if (!paused){ hold = true; clearTimeout(rt); rt = setTimeout(function(){ hold = false; }, 1400); }
+    atEnd = false;
+  }
+  sc.addEventListener('touchmove', moved, {passive:true});
+  sc.addEventListener('wheel', moved, {passive:true});
+  entry.addEventListener('click', function(){ enter(); });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && open) leave();
+  });
+})();
+</script>
 </body>
 </html>
