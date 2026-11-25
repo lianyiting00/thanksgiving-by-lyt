@@ -806,6 +806,7 @@ requestAnimationFrame(frame);
 </script>
 
 <audio id="bgm" loop playsinline preload="auto">
+  <source src="https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3" type="audio/mpeg">
   <source src="music.mp3" type="audio/mpeg">
 </audio>
 
@@ -849,8 +850,26 @@ requestAnimationFrame(frame);
     btn.querySelector('.label').textContent = '轻触开启音乐';
   }
 
+  /* 预取整段音频到本地内存，避免边下边播被网络拖断 */
+  var blobURL = null, preloading = false;
+  var AUDIO_SRC = ['https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3', 'music.mp3'];
+  function loadFrom(i){
+    if (i >= AUDIO_SRC.length){ preloading = false; return; }
+    fetch(AUDIO_SRC[i], {cache:'force-cache'})
+      .then(function(r){ if (!r.ok) throw 0; return r.blob(); })
+      .then(function(b){ blobURL = URL.createObjectURL(b); preloading = false; })
+      .catch(function(){ loadFrom(i+1); });
+  }
+  function preloadAudio(){
+    if (preloading || blobURL) return;
+    preloading = true;
+    loadFrom(0);
+  }
+  preloadAudio();
+
   function tryPlay(){
     if (userPaused) return;
+    if (blobURL && bgm.src !== blobURL){ try { bgm.src = blobURL; bgm.load(); } catch(e){} }
     var p = bgm.play();
     if (p && typeof p.then === 'function'){
       p.then(function(){ markPlaying(); fadeIn(); })
