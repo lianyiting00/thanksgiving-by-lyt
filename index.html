@@ -805,10 +805,7 @@ requestAnimationFrame(frame);
 })();
 </script>
 
-<audio id="bgm" loop playsinline preload="auto">
-  <source src="https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3" type="audio/mpeg">
-  <source src="music.mp3" type="audio/mpeg">
-</audio>
+<audio id="bgm" loop playsinline preload="none"></audio>
 
 <button id="musicBtn" class="music-btn" aria-label="music">
   <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -824,8 +821,16 @@ requestAnimationFrame(frame);
 (function(){
   var bgm  = document.getElementById('bgm');
   var btn  = document.getElementById('musicBtn');
+  var label= btn.querySelector('.label');
   var TARGET_VOL = 0.55;
-  var started = false, userPaused = false;
+  var started = false, userPaused = false, ready = false, pending = false;
+
+  var CDN = 'https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3';
+  var LOCAL = 'music.mp3';
+
+  function setLabel(t){ label.textContent = t; }
+  btn.classList.add('show');
+  setLabel('音乐载入中 0%');
 
   function fadeIn(){
     bgm.volume = 0;
@@ -838,42 +843,68 @@ requestAnimationFrame(frame);
     }
     requestAnimationFrame(step);
   }
-
   function markPlaying(){
     started = true;
-    btn.classList.add('show','compact');
+    btn.classList.add('compact');
     btn.classList.remove('paused');
+    setLabel('');
   }
   function markBlocked(){
-    btn.classList.add('show');
     btn.classList.remove('compact');
-    btn.querySelector('.label').textContent = '轻触开启音乐';
+    setLabel('轻触开启音乐');
   }
 
-  /* 预取整段音频到本地内存，避免边下边播被网络拖断 */
-  var blobURL = null, preloading = false;
-  var AUDIO_SRC = ['https://cdn.jsdelivr.net/gh/lianyiting00/thanksgiving-by-lyt@57adb330cf6dd369da8ef1ff7a64c93869dd8e71/music.mp3', 'music.mp3'];
-  function loadFrom(i){
-    if (i >= AUDIO_SRC.length){ preloading = false; return; }
-    fetch(AUDIO_SRC[i], {cache:'force-cache'})
-      .then(function(r){ if (!r.ok) throw 0; return r.blob(); })
-      .then(function(b){ blobURL = URL.createObjectURL(b); preloading = false; })
-      .catch(function(){ loadFrom(i+1); });
+  /* 整段下载到内存，下完再播，绝不中途断流 */
+  function grab(url, onOK, onFail){
+    var x = new XMLHttpRequest();
+    try { x.open('GET', url, true); } catch(e){ onFail(); return; }
+    x.responseType = 'blob';
+    x.onprogress = function(e){
+      if (e.lengthComputable){
+        var pct = Math.min(99, Math.round(e.loaded / e.total * 100));
+        if (!ready) setLabel('音乐载入中 ' + pct + '%');
+      }
+    };
+    x.onload = function(){
+      if ((x.status === 200 || x.status === 206) && x.response && x.response.size > 100000) onOK(x.response);
+      else onFail();
+    };
+    x.onerror = function(){ onFail(); };
+    x.ontimeout = function(){ onFail(); };
+    x.send();
   }
-  function preloadAudio(){
-    if (preloading || blobURL) return;
-    preloading = true;
-    loadFrom(0);
+
+  function useBlob(b){
+    var u = URL.createObjectURL(b);
+    bgm.src = u;
+    bgm.load();
+    ready = true;
+    setLabel('轻触开启音乐');
+    if (pending) { pending = false; tryPlay(); }
   }
-  preloadAudio();
+
+  function load(i){
+    if (i === 0){
+      grab(CDN, useBlob, function(){ load(1); });
+    } else {
+      grab(LOCAL, useBlob, function(){
+        setLabel('音乐加载失败，点一下重试');
+        btn.addEventListener('click', function once(){
+          btn.removeEventListener('click', once);
+          setLabel('音乐载入中 0%');
+          load(0);
+        });
+      });
+    }
+  }
+  load(0);
 
   function tryPlay(){
     if (userPaused) return;
-    if (blobURL && bgm.src !== blobURL){ try { bgm.src = blobURL; bgm.load(); } catch(e){} }
+    if (!ready){ pending = true; setLabel('音乐载入中…'); return; }
     var p = bgm.play();
     if (p && typeof p.then === 'function'){
-      p.then(function(){ markPlaying(); fadeIn(); })
-       .catch(function(){ markBlocked(); });
+      p.then(function(){ markPlaying(); fadeIn(); }).catch(function(){ markBlocked(); });
     } else {
       markPlaying();
     }
@@ -881,6 +912,7 @@ requestAnimationFrame(frame);
 
   btn.addEventListener('click', function(e){
     e.stopPropagation();
+    if (!ready){ pending = true; setLabel('音乐载入中…'); return; }
     if (!started || bgm.paused){
       userPaused = false;
       tryPlay();
@@ -888,15 +920,11 @@ requestAnimationFrame(frame);
       userPaused = true;
       bgm.pause();
       btn.classList.add('paused');
+      setLabel('轻触继续音乐');
     }
   });
 
-  // 首次任意点击也可开始
-  document.addEventListener('pointerdown', function(){
-    if (!started) tryPlay();
-  }, { passive: true });
-
-  tryPlay();
+  document.addEventListener('pointerdown', function(){ if (!started) tryPlay(); }, { passive: true });
 })();
 </script>
 
